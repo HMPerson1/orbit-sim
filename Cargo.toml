@@ -1,0 +1,6 @@
+[package]
+name = "orbit-sim"
+version = "0.1.0"
+authors = ["HMPerson1 <hmperson1@gmail.com>"]
+
+[dependencies]
