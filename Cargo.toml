@@ -4,3 +4,8 @@ version = "0.1.0"
 authors = ["HMPerson1 <hmperson1@gmail.com>"]
 
 [dependencies]
+cairo-rs = "*"
+
+[dependencies.gtk]
+version = "0.1.1"
+features = ["v3_22"]
