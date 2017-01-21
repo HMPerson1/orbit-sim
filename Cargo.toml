@@ -5,6 +5,8 @@ authors = ["HMPerson1 <hmperson1@gmail.com>"]
 
 [dependencies]
 cairo-rs = "*"
+lazy_static = "*"
+tau = "*"
 
 [dependencies.gtk]
 version = "0.1.1"
