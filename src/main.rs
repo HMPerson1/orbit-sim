@@ -1,44 +1,72 @@
+#![feature(slice_patterns)]
+mod math;
+mod conics;
+mod render;
+
+extern crate num_traits;
 extern crate gtk;
 extern crate cairo;
 extern crate tau;
+extern crate nalgebra as na;
 #[macro_use]
 extern crate lazy_static;
 
 use std::sync::Mutex;
 use gtk::prelude::*;
+use std::f64::NAN;
 use tau::TAU;
 
 #[derive(Clone,Debug)]
-struct State {
+pub struct State {
     eye_lat: f64, // rad
     eye_lon: f64, // rad
     p_eye_lat: f64, // rad (used during a drag)
     p_eye_lon: f64, // rad
     scale: f64, // km/px
-    orbit: Orbit,
+    trajectory: Trajectory,
 }
 
-#[derive(Clone,Debug)]
-enum Orbit {
-    Equitorial(PlanarPath),
+#[derive(Clone,Copy,Debug)]
+struct Trajectory {
+    p: Plane,
+    t: PlanarTrajectory,
 }
 
-#[derive(Clone,Debug)]
-enum PlanarPath {
-    Circle(f64),
+#[derive(Clone,Copy,Debug)]
+struct Plane {
+    lon_asc_node: f64,
+    inclination: f64,
 }
 
+#[derive(Clone,Copy,Debug)]
+struct PlanarTrajectory {
+    arg_peri: f64,
+    periapsis: f64, // km
+    eccentr: f64,
+}
+
+const PLANET_RADIUS: f64 = 6371.0; // km
 const DRAG_TURN_RATE: f64 = 0.01; // rad/px
 
 impl Default for State {
     fn default() -> State {
         State {
-            eye_lat: 0.0,
+            eye_lat: TAU / 16.0,
             eye_lon: 0.0,
-            p_eye_lat: std::f64::NAN,
-            p_eye_lon: std::f64::NAN,
+            p_eye_lat: NAN,
+            p_eye_lon: NAN,
             scale: 0.025,
-            orbit: Orbit::Equitorial(PlanarPath::Circle(6871.0)),
+            trajectory: Trajectory {
+                p: Plane {
+                    lon_asc_node: 0.0,
+                    inclination: 0.0,
+                },
+                t: PlanarTrajectory {
+                    arg_peri: 0.0,
+                    periapsis: PLANET_RADIUS + 200.0,
+                    eccentr: 0.0,
+                },
+            },
         }
     }
 }
@@ -60,20 +88,28 @@ macro_rules! cloning {
     }}
 }
 
-macro_rules! connect_spinbutton_state {
-    ($drawing:ident; $scale:ident => $state:ident . $field:ident <- $conv:expr) => {
-        $scale.connect_value_changed(cloning!($drawing, $scale => move |_| {
-            let $scale = $scale.get_value();
-            $state.lock().unwrap().$field = $conv;
+macro_rules! setup_spinbutton {
+    ($drawing:ident,
+     $min:tt to $max:tt by $incr:tt;
+     $spin_btn:ident -> $state:ident $(.$field:ident)*
+    ) => {
+        $spin_btn.set_range($min, $max);
+        $spin_btn.set_increments($incr, 0.0);
+        setup_spinbutton!($drawing; $spin_btn -> $state$(.$field)*);
+    };
+    ($drawing:ident;
+     $spin_btn:ident -> $state:ident $(.$field:ident)*
+    ) => {
+        $spin_btn.set_value($state.lock().unwrap()$(.$field)*);
+        $spin_btn.connect_value_changed(cloning!($drawing, $spin_btn => move |_| {
+            $state.lock().unwrap()$(.$field)* = $spin_btn.get_value();
             $drawing.queue_draw();
         }));
-        let $scale = $scale.get_value();
-        $state.lock().unwrap().$field = $conv;
     }
 }
 
 lazy_static! {
-    static ref STATE: Mutex<State> = Mutex::new(Default::default());
+    static ref STATE: Mutex<State> = Mutex::new(State::default());
 }
 
 fn main() {
@@ -84,19 +120,36 @@ fn main() {
     get_objects_from_builder!(builder,
                               window: gtk::Window,
                               drawing: gtk::DrawingArea,
-                              r_entry: gtk::SpinButton);
+                              pe_entry: gtk::SpinButton,
+                              ec_entry: gtk::SpinButton,
+                              ar_entry: gtk::SpinButton,
+                              in_entry: gtk::SpinButton,
+                              an_entry: gtk::SpinButton);
 
     window.connect_delete_event(|_, _| {
         gtk::main_quit();
         Inhibit(false)
     });
 
-    drawing.connect_draw(|_, ctx| draw(ctx, &*STATE.lock().unwrap()));
-    connect_spinbutton_state!(
-        drawing;
-        r_entry =>
-        STATE.orbit <- Orbit::Equitorial(PlanarPath::Circle(r_entry))
-    );
+    drawing.connect_draw(|_, ctx| {
+        render::draw(ctx, &*STATE.lock().unwrap());
+        Inhibit(false)
+    });
+
+    setup_spinbutton!(drawing;
+                      pe_entry -> STATE.trajectory.t.periapsis);
+    setup_spinbutton!(drawing;
+                      ec_entry -> STATE.trajectory.t.eccentr);
+    setup_spinbutton!(drawing, (-TAU) to (TAU) by (TAU/50.0);
+                      ar_entry -> STATE.trajectory.t.arg_peri);
+    setup_spinbutton!(drawing, (-TAU) to (TAU) by (TAU/50.0);
+                      in_entry -> STATE.trajectory.p.inclination);
+    setup_spinbutton!(drawing, (-TAU) to (TAU) by (TAU/50.0);
+                      an_entry -> STATE.trajectory.p.lon_asc_node);
+
+    fn limit(x: f64, min: f64, max: f64) -> f64 {
+        x.min(max).max(min)
+    }
 
     let gest_drag = gtk::GestureDrag::new(&drawing);
     gest_drag.connect_drag_begin(|_, _, _| {
@@ -112,204 +165,110 @@ fn main() {
     }));
     gest_drag.connect_drag_end(move |_, _, _| {
         let ref mut state = *STATE.lock().unwrap();
-        state.p_eye_lat = std::f64::NAN;
-        state.p_eye_lon = std::f64::NAN;
+        state.p_eye_lat = NAN;
+        state.p_eye_lon = NAN;
     });
 
     window.show_all();
     gtk::main();
 }
 
-fn limit(x: f64, min: f64, max: f64) -> f64 {
-    x.min(max).max(min)
-}
+// let e1 = Ellipse::Canonical(CanonicalEllipseRepr {
+//     semi_axes: Vector2::new(1.0, 3.0),
+//     center: Point2::new(3.0, 1.0),
+//     rotation: 1.0 * TAU / 3.0,
+// });
+// println!("{:?}",
+//          Ellipse::Implicit(e1.clone().to_implicit()).to_canonical());
+// let t = Affine2::rotate(TAU / 6.0);
+// let e2 = e1.transform(t).to_canonical();
+// println!("{:?}", e2);
+// println!("{:?}",
+//          ImplicitConicSectionRepr(0.0, 1.0, 0.0, 0.0, 0.0, -1.0).to_canonical());
 
-const PLANET_RADIUS: f64 = 6371.0; // km
-const AXIS_LENGTH: f64 = PLANET_RADIUS + 1000.0; // km
-fn draw(ctx: &cairo::Context, st: &State) -> Inhibit {
-    ctx.set_antialias(cairo::Antialias::Best);
-    ctx.set_fill_rule(cairo::FillRule::Winding);
-    let (ox, oy, ex, ey) = ctx.clip_extents();
-    // println!("{:?}", (st.eye_lat / TAU));
+// let render_plane =
+//     |plane_lat: f64, mk_plane_path: &Fn() -> (), do_plane_render: &Fn() -> ()| {
+//         let delta_lat = plane_lat - st.eye_lat;
+//         let sin_dlat = delta_lat.sin();
+//         if sin_dlat != 0.0 {
+//             // inside clip
+//             ctx.new_path();
+//             draw_ellipse_arc(ctx,
+//                              0.0,
+//                              0.0,
+//                              0.0,
+//                              PLANET_RADIUS,
+//                              PLANET_RADIUS * sin_dlat.abs(),
+//                              0.0,
+//                              TAU);
+//             let inside_planet_path = ctx.copy_path();
 
-    ctx.translate((ox + ex) / 2.0, (oy + ey) / 2.0);
-    ctx.scale(st.scale, -st.scale);
-    // the center of our canvas is at the origin and y-axis points up
-    let (_, _, ex, ey) = ctx.clip_extents();
+//             // setup
+//             ctx.push_group();
+//             ctx.new_path();
+//             ctx.scale(1.0, sin_dlat);
+//             mk_plane_path();
+//             ctx.save();
+//             ctx.identity_matrix();
+//             do_plane_render();
+//             ctx.restore();
+//             ctx.pop_group_to_source();
 
-    // setup some clips
-    ctx.new_path();
-    ctx.arc(0.0, 0.0, PLANET_RADIUS, 0.0, TAU);
-    let planet_path = ctx.copy_path();
-    ctx.new_path();
-    ctx.arc_negative(0.0, 0.0, PLANET_RADIUS, TAU, 0.0);
-    let planet_path_inv = ctx.copy_path();
-    ctx.new_path();
-    ctx.rectangle(-ex, ey, 2.0 * ex, -ey);
-    let upper_half_path_inv = ctx.copy_path();
-    ctx.new_path();
-    ctx.rectangle(-ex, 0.0, 2.0 * ex, -ey);
-    let lower_half_path_inv = ctx.copy_path();
-    ctx.new_path();
-    ctx.rectangle(-ex, ey, 2.0 * ex, -2.0 * ey);
-    let everything_path_inv = ctx.copy_path();
+//             // things behind the planet are at 1/4 alpha; things inside are at 1/6 alpha
 
-    let render_plane =
-        |plane_lat: f64, mk_plane_path: &Fn() -> (), do_plane_render: &Fn() -> ()| {
-            let delta_lat = plane_lat - st.eye_lat;
-            let sin_dlat = delta_lat.sin();
-            if sin_dlat != 0.0 {
-                // inside clip
-                ctx.new_path();
-                draw_ellipse_arc(ctx,
-                                 0.0,
-                                 0.0,
-                                 0.0,
-                                 PLANET_RADIUS,
-                                 PLANET_RADIUS * sin_dlat.abs(),
-                                 0.0,
-                                 TAU);
-                let inside_planet_path = ctx.copy_path();
+//             // internal
+//             ctx.save();
+//             ctx.append_path(&inside_planet_path);
+//             ctx.clip();
+//             ctx.paint_with_alpha(1.0 / 6.0);
+//             ctx.restore();
 
-                // setup
-                ctx.push_group();
-                ctx.new_path();
-                ctx.scale(1.0, sin_dlat);
-                mk_plane_path();
-                ctx.save();
-                ctx.identity_matrix();
-                do_plane_render();
-                ctx.restore();
-                ctx.pop_group_to_source();
-
-                // things behind the planet are at 1/3 alpha; things inside are at 1/5 alpha
-
-                // internal
-                ctx.save();
-                ctx.append_path(&inside_planet_path);
-                ctx.clip();
-                ctx.paint_with_alpha(1.0 / 6.0);
-                ctx.restore();
-
-                // other parts
-                let draw_parts_in_planet = |front_half_path_inv: &cairo::Path,
-                                            back_half_path_inv: &cairo::Path| {
-                    // front
-                    ctx.save();
-                    ctx.append_path(&inside_planet_path);
-                    ctx.append_path(&front_half_path_inv);
-                    ctx.clip();
-                    ctx.append_path(&front_half_path_inv);
-                    ctx.clip();
-                    ctx.paint();
-                    ctx.restore();
-                    // back occluded
-                    ctx.save();
-                    ctx.append_path(&inside_planet_path);
-                    ctx.append_path(&planet_path_inv);
-                    ctx.clip();
-                    ctx.append_path(&back_half_path_inv);
-                    ctx.clip();
-                    ctx.paint_with_alpha(1.0 / 4.0);
-                    ctx.restore();
-                    // back outside
-                    ctx.save();
-                    ctx.append_path(&planet_path);
-                    ctx.append_path(&back_half_path_inv);
-                    ctx.clip();
-                    ctx.append_path(&back_half_path_inv);
-                    ctx.clip();
-                    ctx.paint();
-                    ctx.restore();
-                };
-                match delta_lat.tan().partial_cmp(&0.0).unwrap() {
-                    std::cmp::Ordering::Equal => {
-                        ctx.save();
-                        ctx.append_path(&planet_path);
-                        ctx.append_path(&everything_path_inv);
-                        ctx.clip();
-                        ctx.paint();
-                        ctx.restore();
-                    }
-                    std::cmp::Ordering::Greater => {
-                        draw_parts_in_planet(&upper_half_path_inv, &lower_half_path_inv)
-                    }
-                    std::cmp::Ordering::Less => {
-                        draw_parts_in_planet(&lower_half_path_inv, &upper_half_path_inv)
-                    }
-                }
-            }
-        };
-
-    // clear
-    ctx.set_source_rgb(0.0, 0.0, 0.0);
-    ctx.paint();
-    ctx.new_path();
-
-    // Planet
-    ctx.arc(0.0, 0.0, PLANET_RADIUS, 0.0, TAU);
-    ctx.close_path();
-    ctx.set_source_rgb(0.0, 0.0, 0.75);
-    ctx.fill();
-
-    // Axis
-    render_plane(TAU / 4.0,
-                 &|| {
-                     ctx.move_to(0.0, AXIS_LENGTH);
-                     ctx.line_to(0.0, -AXIS_LENGTH);
-                 },
-                 &|| {
-                     ctx.set_line_width(4.0);
-                     ctx.set_line_cap(cairo::LineCap::Round);
-                     ctx.set_source_rgb(0.0, 0.75, 0.75);
-                     ctx.stroke();
-                 });
-
-    // hemisphere lines
-    let hemisphere_renderer = || {
-        ctx.set_line_width(4.0);
-        ctx.set_source_rgb(0.0, 1.0, 0.0);
-        ctx.stroke();
-    };
-    render_plane(TAU / 4.0,
-                 &|| {
-                     ctx.append_path(&planet_path);
-                 },
-                 &hemisphere_renderer);
-    render_plane(0.0,
-                 &|| {
-                     ctx.append_path(&planet_path);
-                 },
-                 &hemisphere_renderer);
-
-    // Orbit
-    let Orbit::Equitorial(PlanarPath::Circle(r)) = st.orbit;
-    render_plane(0.0,
-                 &|| {
-                     ctx.arc(0.0, 0.0, r, 0.0, TAU);
-                 },
-                 &|| {
-                     ctx.set_source_rgb(1.0, 0.0, 0.0);
-                     ctx.set_line_width(5.0);
-                     ctx.stroke();
-                 });
-
-    Inhibit(false)
-}
-
-fn draw_ellipse_arc(ctx: &cairo::Context,
-                    cx: f64,
-                    cy: f64,
-                    theta: f64,
-                    a: f64,
-                    b: f64,
-                    eta1: f64,
-                    eta2: f64)
-                    -> () {
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(theta);
-    ctx.scale(a, b);
-    ctx.arc(0.0, 0.0, 1.0, eta1, eta2);
-    ctx.restore();
-}
+//             // other parts
+//             let draw_parts_in_planet = |front_half_path_inv: &cairo::Path,
+//                                         back_half_path_inv: &cairo::Path| {
+//                 // front
+//                 ctx.save();
+//                 ctx.append_path(&inside_planet_path);
+//                 ctx.append_path(&front_half_path_inv);
+//                 ctx.clip();
+//                 ctx.append_path(&front_half_path_inv);
+//                 ctx.clip();
+//                 ctx.paint();
+//                 ctx.restore();
+//                 // back occluded
+//                 ctx.save();
+//                 ctx.append_path(&inside_planet_path);
+//                 ctx.append_path(&planet_path_inv);
+//                 ctx.clip();
+//                 ctx.append_path(&back_half_path_inv);
+//                 ctx.clip();
+//                 ctx.paint_with_alpha(1.0 / 4.0);
+//                 ctx.restore();
+//                 // back outside
+//                 ctx.save();
+//                 ctx.append_path(&planet_path);
+//                 ctx.append_path(&back_half_path_inv);
+//                 ctx.clip();
+//                 ctx.append_path(&back_half_path_inv);
+//                 ctx.clip();
+//                 ctx.paint();
+//                 ctx.restore();
+//             };
+//             match delta_lat.tan().partial_cmp(&0.0).unwrap() {
+//                 std::cmp::Ordering::Equal => {
+//                     ctx.save();
+//                     ctx.append_path(&planet_path);
+//                     ctx.append_path(&everything_path_inv);
+//                     ctx.clip();
+//                     ctx.paint();
+//                     ctx.restore();
+//                 }
+//                 std::cmp::Ordering::Greater => {
+//                     draw_parts_in_planet(&upper_half_path_inv, &lower_half_path_inv)
+//                 }
+//                 std::cmp::Ordering::Less => {
+//                     draw_parts_in_planet(&lower_half_path_inv, &upper_half_path_inv)
+//                 }
+//             }
+//         }
+//     };

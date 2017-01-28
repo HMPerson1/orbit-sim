@@ -7,6 +7,8 @@ authors = ["HMPerson1 <hmperson1@gmail.com>"]
 cairo-rs = "*"
 lazy_static = "*"
 tau = "*"
+nalgebra = "*"
+num-traits = "*"
 
 [dependencies.gtk]
 version = "0.1.1"
