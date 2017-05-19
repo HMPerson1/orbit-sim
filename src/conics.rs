@@ -1,5 +1,4 @@
-use math::*;
-use na::{Matrix3, Point2, Vector2, Inverse, Transpose};
+use na::{Affine2, Matrix3, Point2, Vector2, Transform2};
 
 #[derive(Clone,Copy,Debug)]
 pub enum Ellipse {
@@ -8,48 +7,34 @@ pub enum Ellipse {
 }
 
 impl Ellipse {
-    pub fn from_orbital(periapsis: f64, eccentricity: f64) -> Ellipse {
-        let a = periapsis / (1.0 - eccentricity);
-        let b = a * (1.0 - eccentricity.powi(2)).sqrt();
+    pub fn new_circle(radius: f64) -> Ellipse {
         Ellipse::Canonical(CanonicalEllipseRepr {
-            semi_axes: Vector2::new(a, b),
-            center: Point2::new(periapsis - a, 0.0),
+            semi_axes: Vector2::new(radius, radius),
+            center: Point2::new(0.0, 0.0),
             rotation: 0.0,
         })
     }
-
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     pub fn to_canonical(self) -> CanonicalEllipseRepr {
         match self {
             Ellipse::Canonical(x) => x,
-            Ellipse::Implicit(x)  => x.to_canonical(),
+            Ellipse::Implicit(x) => x.to_canonical(),
         }
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     pub fn to_implicit(self) -> ImplicitConicSectionRepr {
         match self {
             Ellipse::Canonical(x) => x.to_implicit(),
-            Ellipse::Implicit(x)  => x,
+            Ellipse::Implicit(x) => x,
         }
     }
 
-    pub fn transform(self, a: Affine2<f64>) -> Ellipse {
-        match a.inverse() {
-            Some(a) => {
-                let m = self.to_implicit().to_matrix();
-                let n = a.transpose() * m * a;
-                Ellipse::Implicit(ImplicitConicSectionRepr::from_matrix(n))
-            }
-            None => {
-                // TODO: do better
-                Ellipse::Canonical(CanonicalEllipseRepr {
-                    semi_axes: Vector2::new(0.0, 0.0),
-                    center: Point2::new(0.0, 0.0),
-                    rotation: 0.0,
-                })
-            }
-        }
+    pub fn transform(self, a: &Transform2<f64>) -> Option<Ellipse> {
+        a.try_inverse().map(|a| {
+            let a = a.matrix();
+            let m = self.to_implicit().to_matrix();
+            let n = a.transpose() * m * a;
+            Ellipse::Implicit(ImplicitConicSectionRepr::from_matrix(n))
+        })
     }
 }
 
@@ -59,7 +44,7 @@ pub struct ImplicitConicSectionRepr(pub f64, pub f64, pub f64, pub f64, pub f64,
 impl ImplicitConicSectionRepr {
     // TODO: Make this work for other conic sections
     #[cfg_attr(rustfmt, rustfmt_skip)]
-    pub fn to_canonical(self) -> CanonicalEllipseRepr {
+    fn to_canonical(self) -> CanonicalEllipseRepr {
         let ImplicitConicSectionRepr(pa, pb, pc, pd, pe, pf) = self;
         let discr = pb*pb - 4.0*pa*pc;
         let ec = Point2::new(2.0*pc*pd - pb*pe, 2.0*pa*pe - pb*pd) / discr;
@@ -112,5 +97,20 @@ impl CanonicalEllipseRepr {
         let pe = -pb*ec.x - 2.0*pc*ec.y;
         let pf = pa*ec.x*ec.x + pb*ec.x*ec.y + pc*ec.y*ec.y - ea.x*ea.x*ea.y*ea.y;
         ImplicitConicSectionRepr(pa, pb, pc, pd, pe, pf)
+    }
+
+    fn point(&self, ecc_anom: f64) -> Point2<f64> {
+        let (s, c) = ecc_anom.sin_cos();
+        self.center + Vector2::new(self.semi_axes.x * c, self.semi_axes.y * s)
+    }
+}
+
+impl Default for CanonicalEllipseRepr {
+    fn default() -> Self {
+        CanonicalEllipseRepr {
+            semi_axes: Vector2::new(0.0, 0.0),
+            center: Point2::new(0.0, 0.0),
+            rotation: 0.0,
+        }
     }
 }
