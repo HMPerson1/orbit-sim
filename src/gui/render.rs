@@ -1,10 +1,10 @@
 use cairo;
+use na::{Affine2, Matrix3, Rotation2, Rotation3, Transform2, Vector2, Vector3, U2};
 use tau::TAU;
-use na::{Affine2, Rotation2, Rotation3, Matrix3, U2, Vector2, Vector3, Transform2};
 
+use conics::*;
 use gui::common::*;
 use orbits::*;
-use conics::*;
 
 enum Void {}
 impl FnOnce<(f64, f64)> for Void {
@@ -41,8 +41,8 @@ pub fn draw(ctx: &cairo::Context, st: &State) {
         ctx.arc_negative(0.0, 0.0, PLANET_RADIUS, TAU, 0.0);
         let planet_path_inv = ctx.copy_path();
         ctx.new_path();
-        let proj_mat = Rotation3::from_axis_angle(&Vector3::x_axis(), st.eye_lat - TAU / 4.0) *
-                       Rotation3::from_axis_angle(&Vector3::z_axis(), st.eye_lon - TAU / 4.0);
+        let proj_mat = Rotation3::from_axis_angle(&Vector3::x_axis(), st.eye_lat - TAU / 4.0)
+            * Rotation3::from_axis_angle(&Vector3::z_axis(), st.eye_lon - TAU / 4.0);
         let (_, _, ex, ey) = ctx.clip_extents();
         RenderCommon {
             ctx: ctx,
@@ -58,10 +58,10 @@ pub fn draw(ctx: &cairo::Context, st: &State) {
     ctx.set_source_rgb(0.0, 0.0, 0.0);
     ctx.paint();
 
-    // Planet
-    ctx.append_path(&rc.planet_path);
-    ctx.set_source_rgb(0.0, 0.0, 0.75);
-    ctx.fill();
+    // // Planet
+    // ctx.append_path(&rc.planet_path);
+    // ctx.set_source_rgb(0.0, 0.0, 0.75);
+    // ctx.fill();
 
     // axis
     let north_pole = (rc.proj_mat * Vector3::z()).fixed_rows::<U2>(0) * AXIS_LENGTH;
@@ -74,80 +74,85 @@ pub fn draw(ctx: &cairo::Context, st: &State) {
     ctx.stroke();
     ctx.restore();
 
-    // hemisphere lines
-    // sorta abusing `render_trajectory`
-    let great_circle = PlanarTrajectory { periapsis: PLANET_RADIUS, ..Default::default() };
-    let hemisphere_renderer = || {
-        ctx.set_line_width(4.0);
-        ctx.set_source_rgb(0.0, 1.0, 0.0);
-        ctx.stroke();
-    };
-    println!("1");
-    render_trajctory(&rc,
-                     Default::default(),
-                     Trajectory {
-                         p: Plane {
-                             arg_peri: 0.0,
-                             lon_asc_node: 0.0,
-                             inclination: 0.0,
-                         },
-                         t: great_circle,
-                     },
-                     &hemisphere_renderer);
-    println!("2");
-    render_trajctory(&rc,
-                     Default::default(),
-                     Trajectory {
-                         p: Plane {
-                             arg_peri: 0.0,
-                             lon_asc_node: 0.0,
-                             inclination: TAU / 4.0,
-                         },
-                         t: great_circle,
-                     },
-                     &hemisphere_renderer);
-    println!("3");
-    render_trajctory(&rc,
-                     Default::default(),
-                     Trajectory {
-                         p: Plane {
-                             arg_peri: 0.0,
-                             lon_asc_node: TAU / 4.0,
-                             inclination: TAU / 4.0,
-                         },
-                         t: great_circle,
-                     },
-                     &hemisphere_renderer);
+    // // hemisphere lines
+    // // sorta abusing `render_trajectory`
+    // let great_circle = PlanarTrajectory { periapsis: PLANET_RADIUS, ..Default::default() };
+    // let hemisphere_renderer = || {
+    //     ctx.set_line_width(4.0);
+    //     ctx.set_source_rgb(0.0, 1.0, 0.0);
+    //     ctx.stroke();
+    // };
+    // println!("1");
+    // render_trajctory(&rc,
+    //                  Default::default(),
+    //                  Trajectory {
+    //                      p: Plane {
+    //                          arg_peri: 0.0,
+    //                          lon_asc_node: 0.0,
+    //                          inclination: 0.0,
+    //                      },
+    //                      t: great_circle,
+    //                  },
+    //                  &hemisphere_renderer);
+    // println!("2");
+    // render_trajctory(&rc,
+    //                  Default::default(),
+    //                  Trajectory {
+    //                      p: Plane {
+    //                          arg_peri: 0.0,
+    //                          lon_asc_node: 0.0,
+    //                          inclination: TAU / 4.0,
+    //                      },
+    //                      t: great_circle,
+    //                  },
+    //                  &hemisphere_renderer);
+    // println!("3");
+    // render_trajctory(&rc,
+    //                  Default::default(),
+    //                  Trajectory {
+    //                      p: Plane {
+    //                          arg_peri: 0.0,
+    //                          lon_asc_node: TAU / 4.0,
+    //                          inclination: TAU / 4.0,
+    //                      },
+    //                      t: great_circle,
+    //                  },
+    //                  &hemisphere_renderer);
 
     // actual trajectory
-    render_trajctory::<_, _, Void, Void, _>(&rc,
-                                               InterestingPoints {
-                                                   apoapsis: Some(|x, y| {
-                                                       ctx.set_source_rgb(1.0, 0.0, 0.0);
-                                                       ctx.arc(x, y, 400.0, 0.0, TAU);
-                                                       ctx.fill();
-                                                   }),
-                                                   periapsis: Some(|x, y| {
-                                                       ctx.set_source_rgb(1.0, 0.0, 0.0);
-                                                       ctx.arc(x, y, 400.0, 0.0, TAU);
-                                                       ctx.fill();
-                                                   }),
-                                                   ascending_node: None,
-                                                   descending_node: None,
-                                               },
-                                               st.trajectory,
-                                               || {
-                                                   ctx.set_source_rgb(1.0, 0.0, 0.0);
-                                                   ctx.set_line_width(5.0);
-                                                   ctx.stroke();
-                                               });
+    let rp = render_trajctory::<_, _, Void, Void, _>(
+        &rc,
+        InterestingPoints {
+            apoapsis: Some(|x, y| {
+                ctx.set_source_rgb(1.0, 0.0, 0.0);
+                ctx.arc(x, y, 400.0, 0.0, TAU);
+                ctx.fill();
+            }),
+            periapsis: Some(|x, y| {
+                ctx.set_source_rgb(1.0, 0.0, 0.0);
+                ctx.arc(x, y, 400.0, 0.0, TAU);
+                ctx.fill();
+            }),
+            ascending_node: None,
+            descending_node: None,
+        },
+        st.trajectory,
+        || {
+            ctx.set_source_rgb(1.0, 0.0, 0.0);
+            ctx.set_line_width(5.0);
+            ctx.stroke();
+        },
+    );
+
+    composite_planes_and_planet(&rc, &[rp]);
 }
 
 struct InterestingPoints<F1, F2, F3, F4>
-    where F1: FnOnce(f64, f64) -> (),
-          F2: FnOnce(f64, f64) -> (),
-          F3: FnOnce(f64, f64) -> (),
-          F4: FnOnce(f64, f64) -> ()
+where
+    F1: FnOnce(f64, f64) -> (),
+    F2: FnOnce(f64, f64) -> (),
+    F3: FnOnce(f64, f64) -> (),
+    F4: FnOnce(f64, f64) -> (),
 {
     apoapsis: Option<F1>,
     periapsis: Option<F2>,
@@ -166,20 +171,26 @@ impl Default for InterestingPoints<Void, Void, Void, Void> {
     }
 }
 
-const INTERNAL_ALPHA: f64 = 1.0 / 3.0;
-const OCCLUDED_ALPHA: f64 = 1.0 / 5.0;
+struct RenderedPlane {
+    pattern: cairo::Pattern,
+    inside_planet_path: cairo::Path,
+    back_path_inv: cairo::Path,
+    front_path_inv: cairo::Path,
+}
 
 // TODO: dynamic dispatch might be better here
-fn render_trajctory<F1, F2, F3, F4, Fr>(rc: &RenderCommon,
-                                        pts: InterestingPoints<F1, F2, F3, F4>,
-                                        traj: Trajectory,
-                                        tr_renderer: Fr)
-                                        -> ()
-    where F1: FnOnce(f64, f64) -> (),
-          F2: FnOnce(f64, f64) -> (),
-          F3: FnOnce(f64, f64) -> (),
-          F4: FnOnce(f64, f64) -> (),
-          Fr: FnOnce() -> ()
+fn render_trajctory<F1, F2, F3, F4, Fr>(
+    rc: &RenderCommon,
+    pts: InterestingPoints<F1, F2, F3, F4>,
+    traj: Trajectory,
+    tr_renderer: Fr,
+) -> RenderedPlane
+where
+    F1: FnOnce(f64, f64) -> (),
+    F2: FnOnce(f64, f64) -> (),
+    F3: FnOnce(f64, f64) -> (),
+    F4: FnOnce(f64, f64) -> (),
+    Fr: FnOnce() -> (),
 {
     let ctx = rc.ctx;
 
@@ -195,18 +206,14 @@ fn render_trajctory<F1, F2, F3, F4, Fr>(rc: &RenderCommon,
     }
     let aff = aff;
 
-    rc.planet.transform(&aff).map(|e| draw_ellipse_arc(ctx, e, 0.0, TAU));
+    rc.planet
+        .transform(&aff)
+        .map(|e| draw_ellipse_arc(ctx, e, 0.0, TAU));
     let inside_planet_path = ctx.copy_path();
     ctx.new_path();
 
-    let orbit_norm = mat3 * Vector3::z();
-    let ell = match traj.t.to_ellipse().transform(&aff) {
-        None => {
-            println!("{:?}", traj);
-            return;
-        }
-        Some(x) => x,
-    };
+    // start rendering to a pattern
+    ctx.push_group();
 
     // interesting points
     pts.apoapsis.map(|f| {
@@ -220,24 +227,19 @@ fn render_trajctory<F1, F2, F3, F4, Fr>(rc: &RenderCommon,
         f(pe.x, pe.y);
     });
 
-    // setup source
-    ctx.push_group();
-    draw_ellipse_arc(ctx, ell, 0.0, TAU);
-    ctx.save();
-    ctx.identity_matrix();
-    tr_renderer();
-    ctx.restore();
-    ctx.pop_group_to_source();
+    if let Some(ell) = traj.t.to_ellipse().transform(&aff) {
+        draw_ellipse_arc(ctx, ell, 0.0, TAU);
+        ctx.save();
+        ctx.identity_matrix();
+        tr_renderer();
+        ctx.restore();
+    }
 
-    // // bits inside the planet
-    // ctx.save();
-    // ctx.append_path(&inside_planet_path);
-    // ctx.clip();
-    // ctx.paint_with_alpha(INTERNAL_ALPHA);
-    // ctx.restore();
+    let pattern = ctx.pop_group();
 
     // figure out which parts are in front of the planet and behind the planet
     let (back_path_inv, front_path_inv) = {
+        let orbit_norm = mat3 * Vector3::z_axis();
         let cut_dir = orbit_norm.cross(&Vector3::z_axis());
         let cut_angle = cut_dir.y.atan2(cut_dir.x);
 
@@ -255,34 +257,12 @@ fn render_trajctory<F1, F2, F3, F4, Fr>(rc: &RenderCommon,
         }
     };
 
-    // bits outside the planet
-    // front
-    ctx.save();
-    ctx.append_path(&inside_planet_path);
-    ctx.append_path(&front_path_inv);
-    ctx.clip();
-    ctx.append_path(&front_path_inv);
-    ctx.clip();
-    ctx.paint();
-    ctx.restore();
-    // back occluded
-    ctx.save();
-    ctx.append_path(&inside_planet_path);
-    ctx.append_path(&rc.planet_path_inv);
-    ctx.clip();
-    ctx.append_path(&back_path_inv);
-    ctx.clip();
-    ctx.paint_with_alpha(OCCLUDED_ALPHA);
-    ctx.restore();
-    // back outside
-    ctx.save();
-    ctx.append_path(&rc.planet_path);
-    ctx.append_path(&back_path_inv);
-    ctx.clip();
-    ctx.append_path(&back_path_inv);
-    ctx.clip();
-    ctx.paint();
-    ctx.restore();
+    RenderedPlane {
+        pattern,
+        inside_planet_path,
+        back_path_inv,
+        front_path_inv,
+    }
 }
 
 fn draw_ellipse_arc(ctx: &cairo::Context, ellipse: Ellipse, eta1: f64, eta2: f64) -> () {
@@ -297,4 +277,55 @@ fn draw_ellipse_arc(ctx: &cairo::Context, ellipse: Ellipse, eta1: f64, eta2: f64
         // println!("line ellipse: {:?}", el);
     }
     ctx.restore();
+}
+
+fn composite_planes_and_planet(rc: &RenderCommon<'_>, planes: &[RenderedPlane]) -> () {
+    let ctx = rc.ctx;
+    // compose in z-order
+
+    // back
+    for rp in planes {
+        ctx.save();
+        ctx.append_path(&rp.inside_planet_path);
+        ctx.append_path(&rp.back_path_inv);
+        ctx.clip();
+        ctx.append_path(&rp.back_path_inv);
+        ctx.clip();
+        ctx.set_source(&rp.pattern);
+        ctx.paint();
+        ctx.restore();
+    }
+
+    // planet back
+    ctx.append_path(&rc.planet_path);
+    ctx.set_source_rgba(0.0, 0.0, 0.75, 0.5);
+    ctx.fill();
+
+    // inside
+    for rp in planes {
+        ctx.save();
+        ctx.append_path(&rp.inside_planet_path);
+        ctx.clip();
+        ctx.set_source(&rp.pattern);
+        ctx.paint();
+        ctx.restore();
+    }
+
+    // planet front
+    ctx.append_path(&rc.planet_path);
+    ctx.set_source_rgba(0.0, 0.0, 0.75, 0.5);
+    ctx.fill();
+
+    // front
+    for rp in planes {
+        ctx.save();
+        ctx.append_path(&rp.inside_planet_path);
+        ctx.append_path(&rp.front_path_inv);
+        ctx.clip();
+        ctx.append_path(&rp.front_path_inv);
+        ctx.clip();
+        ctx.set_source(&rp.pattern);
+        ctx.paint();
+        ctx.restore();
+    }
 }

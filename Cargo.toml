@@ -4,16 +4,10 @@ version = "0.1.0"
 authors = ["HMPerson1 <hmperson1@gmail.com>"]
 
 [dependencies]
-cairo-rs = "0.2"
-lazy_static = "0.2"
+cairo-rs = "0.5"
 tau = "1.0"
-nalgebra = "0.13"
-typenum = "1.9"
-generic-array = "0.2"
-num-traits = "0.1"
-rand = "0.3"
-bitflags = "0.9"
+nalgebra = "0.16"
 
 [dependencies.gtk]
-version = "0.2"
+version = "0.5"
 features = ["v3_22"]

@@ -33,8 +33,6 @@ impl Default for PlanarTrajectory {
         PlanarTrajectory {
             periapsis: PLANET_RADIUS + 200.0,
             eccentr: 0.0,
-            mean_anom0: 0.0,
-            mean_anom1: TAU,
         }
     }
 }

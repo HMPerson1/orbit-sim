@@ -1,11 +1,6 @@
 #![feature(unboxed_closures,fn_traits)]
 
 #[macro_use]
-extern crate lazy_static;
-extern crate rand;
-extern crate typenum;
-extern crate generic_array;
-extern crate num_traits;
 extern crate gtk;
 extern crate cairo;
 extern crate tau;
